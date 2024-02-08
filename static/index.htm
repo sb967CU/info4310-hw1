@@ -1,124 +1,237 @@
-<html><head>
-<title>TODO Title</title>
+<html>
+  <head>
+    <title>INFO4310 HW1 SF Tree Visualizations</title>
 
-  <link href="https://fonts.googleapis.com/css?family=Lato:400,700|Raleway:400,700" rel="stylesheet">
+    <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.14.2/highlight.min.js"></script>
+    <script src="https://d3js.org/d3.v5.min.js"></script>
+    <script src="https://d3js.org/topojson.v2.min.js"></script>
+    <style>
+      .neighborhood {
+        fill: #eee;
+        stroke: white;
+        stroke-width: 2px;
+      }
+      .center {
+        display: block;
+        margin-top: 30px;
+        margin-left: auto;
+        margin-right: auto;
+        width: 50%;
+        font-family: "Franklin Gothic Medium";
+        font-size: 26px;
+        color: rgb(71, 71, 71);
+      }
+      h1 {
+        font-size: 70px;
+        display: block;
+        margin-top: 10px;
+        margin-left: 25%;
+        margin-right: auto;
+        width: 50%;
+        font-family: "Franklin Gothic Medium";
+        font-size: 35px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>An Exploration into San Francisco Tree Legality</h1>
+    <h2 class="center">Map of Legal Status (for non DPW Maintained Trees)</h2>
+    <svg id="legalmap" height="700" width="1200"></svg>
+    <h2 class="center">
+      Average Diameter at Breast Height (DBH) by Legal Status
+    </h2>
+    <svg class="center" id="legalDBHbars" height="700" width="750"></svg>
 
-  <link rel="stylesheet" type="text/css" href="../css/normalize.css">
-  <link rel="stylesheet" type="text/css" href="../css/skeleton.css">
-  <link rel="stylesheet" type="text/css" href="../css/custom-style.css">
+    <script id="mapvis">
+      const svg = d3.select("#legalmap");
+      const width = svg.attr("width");
+      const height = svg.attr("height");
+      const margin = { top: 25, right: 350, bottom: 25, left: 10 };
+      const mapwidth = width - margin.left - margin.right;
+      const mapheight = height - margin.top - margin.bottom;
 
-  <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.14.2/styles/default.min.css">
-  <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.14.2/highlight.min.js"></script>
-  <script src="https://d3js.org/d3.v5.min.js"></script>
-  <script src="https://d3js.org/topojson.v2.min.js"></script>
-  <style>
+      const lmap = svg
+        .append("g")
+        .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
 
-  .neighborhood {
-    fill: #EEE;
-    stroke: white;
-    stroke-width: 2px;
-  }
+      const requestData = async function () {
+        // same as setup demo:
+        const geosf = await d3.json("./SF-Neighborhoods.geo.json");
+        //console.log(sf);
 
-  </style>
+        const nbhds = topojson.feature(geosf, geosf.objects.SFNeighborhoods);
 
-</head>
-<body>
-  <div class="container larger">
-    <p> A map of SF trees:</p>
-  <svg id="points" height="900" width="900" style="background: #fff; margin-top:50px" >
+        var projection = d3.geoMercator().fitSize([mapwidth, mapheight], nbhds);
+        var path = d3.geoPath().projection(projection);
 
-  </svg>
+        lmap
+          .selectAll("path.neighborhood")
+          .data(nbhds.features)
+          .join("path")
+          .attr("class", "neighborhood")
+          .attr("d", path);
 
+        const trees = await d3.csv(
+          "./Street_Tree_List-2022-01-30_FILTERED.csv"
+        );
 
+        // create array of unique legal statuses
+        // some legalstatus were empty, so we need to check for empty str
+        let legalstat = [];
+        trees.forEach((d) => {
+          d.Position = projection([d.Longitude, d.Latitude]);
+          if (d.qLegalStatus !== "" && !legalstat.includes(d.qLegalStatus)) {
+            legalstat.push(d.qLegalStatus);
+          }
+        });
 
-  <script id="notes1">
+        // create color categories for legal statuses
+        const legalcol = d3.scaleOrdinal().domain(legalstat).range([
+          "none",
+          "#99cca7", // green = permitted site
+          "#1f84f0", // blue = section law tree
+          "#f0391f", // red = undocumented
+          "#9d47bf", // purple = significant/landmark tree (aka special)
+          "#454445", // grey = private/opt-out tree (aka left alone)
+          "orange", // orange = planning code required (may be illegal)
+          "#454445", // grey = private/opt-out tree (aka left alone)
+          "#1f84f0", // blue = section law tree
+          "#9d47bf", // purple = significant/landmark tree (aka special)
+          "#454445", // grey = private/opt-out tree (aka left alone)
+          "#454445", // grey = private/opt-out tree (aka left alone)
+        ]);
 
-  const svg = d3.select("#points");
-  const width = svg.attr("width");
-  const height = svg.attr("height");
-  const margin = { top: 20, right: 20, bottom: 20, left:20};
-  const mapWidth = width - margin.left - margin.right;
-  const mapHeight = height - margin.top - margin.bottom;
-  const map = svg.append("g")
-                  .attr("transform","translate("+margin.left+","+margin.top+")");
+        // fill data circles
+        lmap
+          .selectAll("circle")
+          .data(trees)
+          .join("circle")
+          .attr("cx", (d) => d.Position[0])
+          .attr("cy", (d) => d.Position[1])
+          .attr("r", 4)
+          .attr("fill", (d) =>
+            d.qLegalStatus == "DPW Maintained"
+              ? "none"
+              : legalcol(d.qLegalStatus)
+          )
+          .attr("opacity", (d) =>
+            d.qLegalStatus !== "Permitted Site" ? 0.5 : 0.3
+          );
 
-  // Let's make a map of all of the municipal trees in San Francisco
-  // With any luck, we ought to be able to visualize the streets/blocks in the city, since trees line them
-  //   (this is really just an excuse to make a lot of dots)
-  
-  // Datasets for today:
-  //  "../datasets/SF-Neighborhoods.json"
-  //  "../datasets/Street_Tree_List_smaller.csv"
+        // add legend squares + text labels
+        svg
+          .selectAll("legendsquares")
+          .data(legalstat)
+          .enter()
+          .append("rect")
+          .attr("width", 20)
+          .attr("height", 20)
+          .attr("x", 780)
+          .attr("y", (d, i) => 210 + i * 30)
+          .attr("opacity", 0.8)
+          .attr("fill", (d) => (d == "DPW Maintained" ? "none" : legalcol(d)));
 
+        svg
+          .selectAll("legendtexts")
+          .data(legalstat)
+          .enter()
+          .append("text")
+          .attr("x", 820)
+          .attr("y", (d, i) => 222 + i * 30)
+          .attr("fill", (d) => (d == "DPW Maintained" ? "none" : legalcol(d)))
+          .text((d) => d)
+          .attr("text-anchor", "left")
+          .attr("font-size", 25)
+          .attr("font-family", "Franklin Gothic Medium")
+          .style("alignment-baseline", "middle");
 
-  // 1. Make the visualization
-  //  (refer to 03/04 notes for more comments)
-  const requestData = async function() {
-    
-    const sf = await d3.json("./SF-Neighborhoods.json");
-    console.log(sf);
-    
-    // We find that the feature we want to visualize is the SFNeighborhoods property within objects
-    //  Always search .objects for different features to show in a topoJSON dataset
-    var neighborhoods = topojson.feature(sf, sf.objects.SFNeighborhoods);
-    
-    // We use Mercator projection instead of a "better" projection because it's more familiar
-    // It also leads to a flat line on the bottom of the city due to how the projection makes all
-    //  latitude lines flat (which allows rhumb line equivalency)
-    var projection = d3.geoMercator().fitSize([mapWidth, mapHeight], neighborhoods);
-    var path = d3.geoPath().projection(projection);
-    
-    // Draw neighborhoods
-    // Just as in our line generators, the scale is used by the generator to take complex data and
-    //  generate fancy paths
-    map.selectAll("path.neighborhood").data(neighborhoods.features)
-      .join("path")
-      .attr("class", "neighborhood")
-      .attr("d", path);
-      
-      
-    const trees = await d3.csv("./Street_Tree_List_smaller.csv");
-    
-    
-    // We need to figure out where to position the dots. Since we may have a lot of them, let's process
-    //  the data ahead of time and add to our dict
-    // (Main reason for doing this is that otherwise we would have to call projection() twice, once
-    //    for 'cx' and once for 'cy')
-    trees.forEach( d => {
-      
-      // Use the projection just like a scale to convert from lng/lat to pixels
-      d.Position = projection( [d.Longitude, d.Latitude] );
-      
-    });
-    
-    // Draw circles using the Positions we just made
-    map.selectAll("circle").data(trees)
-       .join("circle")
-       .attr("r", 1)
-       .attr("fill", "forestgreen")
-       .attr("opacity", 0.4)
-       .attr("cx", d => d.Position[0])
-       .attr("cy", d => d.Position[1]);
-    
-    
-    
-  }
-  requestData();
-  
-  
-  
+        // second visualization
+        // bar graph: average DBH per legal status category
+        const marginb = { top: 30, right: 30, bottom: 210, left: 70 };
+        const widthb = 760 - marginb.left - marginb.right;
+        const heightb = 700 - marginb.top - marginb.bottom;
 
+        const svgb = d3
+          .select("#legalDBHbars")
+          .append("svg")
+          .attr("width", widthb + marginb.left + marginb.right)
+          .attr("height", heightb + marginb.top + marginb.bottom)
+          .append("g")
+          .attr(
+            "transform",
+            "translate(" + marginb.left + "," + marginb.top + ")"
+          );
 
+        const xb = d3
+          .scaleBand()
+          .range([0, widthb])
+          .domain(legalstat.map((d) => d))
+          .padding(0.25);
+        svgb
+          .append("g")
+          .attr("transform", "translate(0," + heightb + ")")
+          .call(d3.axisBottom(xb))
+          .selectAll("text")
+          .style("font-family", "Franklin Gothic Medium")
+          .style("font-size", "15px")
+          .attr("transform", "translate(-10,0)rotate(-45)")
+          .style("text-anchor", "end");
 
+        const yb = d3.scaleLinear().domain([0, 50]).range([heightb, 0]);
+        svgb
+          .append("g")
+          .call(d3.axisLeft(yb))
+          .style("font-family", "Franklin Gothic Medium")
+          .style("font-size", "15px");
 
-  </script>
+        svgb
+          .append("text")
+          .attr("class", "y label")
+          .attr("text-anchor", "end")
+          .attr("y", -60)
+          .attr("dy", ".75em")
+          .attr("transform", "rotate(-90)")
+          .text("Average DBH");
 
+        // iteratively build the data and averages
+        let dbhtmp = [];
+        trees.forEach((d) => {
+          dbhtmp.push([d.qLegalStatus, d.DBH]);
+        });
 
+        let dbhtmp2 = [];
+        for (let k = 0; k < legalstat.length; k++) {
+          let tmp = [];
+          for (let n = 0; n < dbhtmp.length; n++) {
+            if (legalstat[k] == dbhtmp[n][0]) {
+              tmp.push(dbhtmp[n][1]);
+            }
+          }
+          dbhtmp2.push(tmp);
+        }
 
+        let dbhtmp3 = [];
+        for (let k = 0; k < dbhtmp2.length; k++) {
+          numer = 0;
+          for (let n = 0; n < dbhtmp2[k].length; n++) {
+            numer += parseInt(dbhtmp2[k][n]);
+          }
+          dbhtmp3.push(numer / dbhtmp2[k].length);
+        }
+        console.log(dbhtmp3);
 
-
-  
-
-  </div>
-</body>
+        svgb
+          .selectAll("bars")
+          .data(dbhtmp3)
+          .enter()
+          .append("rect")
+          .attr("x", (d) => xb(legalstat[dbhtmp3.indexOf(d)]))
+          .attr("y", (d) => yb(d))
+          .attr("width", xb.bandwidth())
+          .attr("height", (d) => heightb - yb(d))
+          .attr("fill", (d) => legalcol(legalstat[dbhtmp3.indexOf(d)]));
+      };
+      requestData();
+    </script>
+  </body>
 </html>
